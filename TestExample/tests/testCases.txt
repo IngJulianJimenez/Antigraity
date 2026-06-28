@@ -1,0 +1,139 @@
+========================================
+ESCENARIOS DE PRUEBA - Todo API
+https://todo.pixegami.io
+========================================
+
+Fuente del contrato: https://todo.pixegami.io/openapi.json (OpenAPI 3.0.2, FastAPI)
+
+Schema PutTaskRequest:
+  - content   (string)  REQUERIDO
+  - user_id   (string)  opcional
+  - task_id   (string)  opcional
+  - is_done   (boolean) opcional, default: false
+
+Errores de validacion retornan: 422 Unprocessable Entity
+Errores de recurso no encontrado retornan: 404 Not Found
+
+
+--- HAPPY PATH ---
+
+[OK] test_call_endpoint              - GET /  -> 200 (health check, API online)
+[OK] test_create_task                - PUT /create-task con payload valido -> 200
+[OK] test_get_task                   - GET /get-task/{task_id} existente -> 200, verifica content, user_id, is_done
+[OK] test_update_task                - PUT /update-task con task_id y user_id validos -> 200
+[OK] test_delete_task                - DELETE /delete-task/{task_id} -> 200, luego GET del mismo id -> 404
+[OK] test_list_tasks                 - GET /list-tasks/{user_id} -> 200, respuesta contiene "tasks" con al menos 1 elemento
+
+[ ] Verificar datos tras update      - GET /get-task/{task_id} despues de PUT /update-task para confirmar que content e is_done cambiaron realmente en el servidor
+[ ] Crear tarea con is_done: true    - PUT /create-task con is_done: true -> 200, verificar que is_done es true en GET posterior
+[ ] Crear tarea sin user_id          - PUT /create-task solo con content (user_id es opcional segun schema) -> 200, verificar que task_id se genera
+[ ] Listar tareas de usuario sin tareas - GET /list-tasks/{user_id} con user_id que no tiene tareas -> 200, "tasks" es lista vacia []
+
+
+--- ERROR CASES ---
+
+Create Task (PUT /create-task):
+[ ] Payload vacio {}                          - Esperado: 422 (content es requerido)
+[ ] Falta campo content                       - Esperado: 422 (unico campo requerido segun schema)
+[ ] content como string vacio ""              - Esperado: 200 o 422 (la API no documenta minimo de longitud; comportamiento a confirmar)
+[ ] is_done como string en vez de bool       - Esperado: 422 (falla validacion de tipo)
+[ ] is_done como integer (0 o 1)             - Esperado: 200 (FastAPI acepta 0/1 como bool) o 422 (a confirmar)
+
+Get Task (GET /get-task/{task_id}):
+[ ] task_id inexistente (UUID aleatorio)      - Esperado: 404
+[ ] task_id con espacios o caracteres raros   - Esperado: 404 o 422 (depende del router de FastAPI)
+
+Update Task (PUT /update-task):
+[ ] Payload vacio {}                          - Esperado: 422 (content es requerido en PutTaskRequest)
+[ ] Payload solo con content, sin task_id     - Esperado: 200 (task_id es opcional segun schema) — verificar comportamiento real de la API
+[ ] task_id en payload que no existe          - Esperado: 404
+[ ] content como string vacio ""              - Esperado: 200 o 422 (a confirmar, misma incertidumbre que en create)
+
+Delete Task (DELETE /delete-task/{task_id}):
+[ ] task_id inexistente                       - Esperado: 404
+[ ] Doble delete (eliminar tarea ya eliminada)- Esperado: 404 en el segundo DELETE
+[ ] task_id con espacios o caracteres raros   - Esperado: 404 o 422
+
+List Tasks (GET /list-tasks/{user_id}):
+[ ] user_id de usuario sin tareas             - Esperado: 200, "tasks": []
+[ ] user_id con caracteres especiales         - Esperado: 200 o 422 (el router puede rechazarlo)
+
+
+--- EDGE CASES ---
+
+[ ] content extremadamente largo (10000+ chars) - PUT /create-task -> comportamiento indefinido; puede retornar 200 o 413 (API no documenta limite)
+[ ] content con caracteres unicode y emojis     - PUT /create-task -> Esperado: 200, verificar que el contenido se preserva exacto en GET
+[ ] content con solo espacios "   "             - PUT /create-task -> Esperado: 200 o 422 (a confirmar si la API valida blank-only strings)
+[ ] Flujo completo CRUD en secuencia            - create -> get -> update -> get (verificar cambio) -> delete -> get (404)
+[ ] Crear multiples tareas para el mismo user_id- PUT /create-task x3 con mismo user_id, luego GET /list-tasks/{user_id} -> "tasks" tiene 3 elementos
+
+
+--- BOUNDARY CASES (PutTaskRequest) ---
+
+Nota: el schema no define restricciones de longitud en ningún campo.
+Los siguientes casos exploran los limites implicitos del tipo string:
+
+[ ] content de 1 caracter                    - PUT /create-task -> Esperado: 200 (minimo semantico)
+[ ] content de 255 caracteres exactos        - PUT /create-task -> Esperado: 200 (limite comun de VARCHAR)
+[ ] content de 256 caracteres               - PUT /create-task -> Esperado: 200 (confirmar que no hay truncado ni rechazo)
+[ ] user_id de 1 caracter                   - PUT /create-task con user_id de 1 char -> Esperado: 200
+[ ] task_id con formato no-UUID en update   - PUT /update-task con task_id="abc123" (no UUID) -> Esperado: 404 o 200 (a confirmar)
+
+
+--- CONTRATOS DOCUMENTADOS ---
+
+Endpoint: GET /
+  Response 200: any (sin schema definido en OpenAPI)
+
+Endpoint: PUT /create-task
+  Request body (required): PutTaskRequest
+    content  string   REQUERIDO
+    user_id  string   opcional
+    task_id  string   opcional
+    is_done  boolean  opcional, default false
+  Response 200: any
+  Response 422: HTTPValidationError { detail: [{ loc, msg, type }] }
+
+Endpoint: GET /get-task/{task_id}
+  Path param: task_id string REQUERIDO
+  Response 200: task object { task_id, content, user_id, is_done, created_time, ttl }
+  Response 422: HTTPValidationError
+  Response 404: (no documentado en OpenAPI, pero comportamiento observado)
+
+Endpoint: PUT /update-task
+  Request body (required): PutTaskRequest (mismo schema que create-task)
+  Response 200: any
+  Response 422: HTTPValidationError
+
+Endpoint: GET /list-tasks/{user_id}
+  Path param: user_id string REQUERIDO
+  Response 200: { tasks: [ task object... ] }
+  Response 422: HTTPValidationError
+
+Endpoint: DELETE /delete-task/{task_id}
+  Path param: task_id string REQUERIDO
+  Response 200: any
+  Response 422: HTTPValidationError
+  Response 404: (no documentado en OpenAPI, pero comportamiento observado)
+
+
+--- PRIORIDAD DE IMPLEMENTACION ---
+
+Alta (gaps criticos o comportamiento no verificado):
+  1. Verificar datos tras update        - test_update_task actual solo verifica 200, puede dar falso positivo
+  2. Payload vacio en create            - caso de error mas basico, valida que la API rechaza bien
+  3. task_id inexistente en get         - flujo de error fundamental del CRUD
+  4. Doble delete                        - edge case real en produccion, facil de implementar
+
+Media (amplian cobertura del schema):
+  5. Crear tarea con is_done: true      - cubre variante de campo booleano
+  6. Crear tarea sin user_id            - verifica comportamiento cuando campo opcional esta ausente
+  7. task_id inexistente en delete      - simetrico con el caso de get
+  8. Listar tareas de usuario sin tareas- verifica que la respuesta maneja lista vacia correctamente
+
+Baja (edge/boundary, comportamiento a confirmar empiricamente):
+  9.  content vacio ""                   - el schema no define minimo; respuesta real desconocida
+  10. content con unicode y emojis       - preservacion de encoding
+  11. content extremadamente largo       - limite de almacenamiento no documentado
+  12. Flujo CRUD completo en secuencia   - test de integracion end-to-end
+  13. Boundary de longitud de content    - 1 char, 255 chars, 256 chars

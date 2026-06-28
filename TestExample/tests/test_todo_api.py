@@ -33,3 +33,11 @@ def test_delete_task(created_task):
     assert response.status_code == 200
     get_response = requests.get(ENDPOINT + f"/get-task/{task_id}")
     assert get_response.status_code == 404
+
+def test_list_tasks(created_task):
+    user_id = created_task["payload"]["user_id"]
+    response = requests.get(ENDPOINT + f"/list-tasks/{user_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert "tasks" in data
+    assert len(data["tasks"]) > 0
