@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | pytest | 9.1.1 |
 | requests | 2.32.5 |
 
-## Estructura del proyecto
+## Estructura del proyecto.
 
 ```
 TestExample/
